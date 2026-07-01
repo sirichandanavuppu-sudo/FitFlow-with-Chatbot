@@ -1,12 +1,19 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { retrieveChunks, assembleResponse } from '../utils/chatbot'
+import { retrieveChunks } from '../utils/chatbot'
+import { chatWithOllama, formatOllamaError } from '../utils/ollama'
 import knowledgeBase from '../data/knowledge-base.json'
 import { listStagger, pageTransition, slideVariants, staggerContainer } from '../animations/variants'
 
 const WELCOME = {
   role: 'bot',
-  text: "Hi! Ask me anything about fitness, nutrition, BMI, or hydration. I'll do my best to help 💪",
+  text: "Hi! I'm powered by Llama 3 (Ollama). Ask me about fitness, nutrition, BMI, or hydration 💪",
+}
+
+function conversationHistory(messages, newUserMessage) {
+  return [...messages, newUserMessage]
+    .filter((m) => m.role === 'user' || m.role === 'bot')
+    .filter((m, i) => !(i === 0 && m.role === 'bot' && m.text === WELCOME.text))
 }
 
 export default function Chat() {
@@ -17,20 +24,27 @@ export default function Chat() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [messages, loading])
 
-  const send = () => {
+  const send = async () => {
     const query = input.trim()
-    if (!query) return
-    setMessages((prev) => [...prev, { role: 'user', text: query }])
+    if (!query || loading) return
+
+    const userMessage = { role: 'user', text: query }
+    setMessages((prev) => [...prev, userMessage])
     setInput('')
     setLoading(true)
-    setTimeout(() => {
+
+    try {
       const chunks = retrieveChunks(query, knowledgeBase, 3)
-      const response = assembleResponse(chunks)
+      const history = conversationHistory(messages, userMessage)
+      const response = await chatWithOllama(history, { contextChunks: chunks })
       setMessages((prev) => [...prev, { role: 'bot', text: response }])
+    } catch (error) {
+      setMessages((prev) => [...prev, { role: 'bot', text: formatOllamaError(error) }])
+    } finally {
       setLoading(false)
-    }, 300)
+    }
   }
 
   const handleKey = (e) => {
@@ -48,6 +62,9 @@ export default function Chat() {
     >
       <motion.div className="section-card" style={{ flex: 1 }} variants={slideVariants}>
         <h3>FitFlow AI</h3>
+        <p style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: 12 }}>
+          Llama 3 via Ollama · local & free
+        </p>
         <motion.div className="chat-messages" variants={listStagger} initial="hidden" animate="visible">
           <AnimatePresence initial={false}>
             {messages.map((msg, i) => (
